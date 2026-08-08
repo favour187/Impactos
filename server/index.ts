@@ -80,7 +80,7 @@ app.post('/api/analyze', upload.single('file'), async (req, res) => {
   }
 });
 
-// Safe URL Inspector Endpoint
+// Follow-up Chat Assistant Endpoint
 app.post('/api/chat-followup', async (req, res) => {
   try {
     const { userQuery, category, overallRisk, summary, warningSigns } = req.body;
@@ -99,6 +99,7 @@ app.post('/api/chat-followup', async (req, res) => {
   }
 });
 
+// Safe URL Inspector Endpoint
 app.post('/api/url-inspect', (req, res) => {
   try {
     const { url } = req.body;
@@ -170,7 +171,9 @@ async function setupFrontend() {
     app.use(vite.middlewares);
     console.log('Vite dev middleware attached');
   } else {
-    const distPath = path.resolve(__dirname, '../dist');
+    // Resolve static build path relative to root working directory
+    const distPath = path.resolve(process.cwd(), 'dist');
+    console.log(`Serving static production frontend from ${distPath}`);
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
