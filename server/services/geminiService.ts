@@ -70,6 +70,8 @@ SAFETY & TONE GUIDELINES:
 - Avoid absolute declarative accusations: Do not say "This definitely contains malware", "This person is a scammer", or "You will be harmed".
 - For medical, legal, structural, electrical, agricultural, or emergency situations, include standard screening disclaimers.
 - If the input is completely ambiguous or unreadable, set overallRisk to "UNKNOWN", riskScore to 0, confidence to 0, and explain what additional context is required.
+
+Return strictly raw JSON. Do not enclose in markdown code blocks or extra conversational text.
 `;
 
 export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysisResult> {
@@ -136,19 +138,13 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
     });
   }
 
-  // Model fallback chain: gemini-1.5-flash, gemini-1.5-pro, gemini-2.0-flash-exp
-  const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'];
-  let lastError: any = null;
+  // Standard supported Gemini model names
+  const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
+  let errors: string[] = [];
 
   for (const modelName of modelsToTry) {
     try {
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        generationConfig: {
-          responseMimeType: 'application/json'
-        }
-      });
-
+      const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(parts);
       const responseText = result.response.text() || '';
       const parsed = parseGeminiResponse(responseText);
@@ -161,7 +157,7 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
       }
     } catch (error: any) {
       console.error(`Gemini API Error with model ${modelName}:`, error);
-      lastError = error;
+      errors.push(`${modelName}: ${error.message || 'Error'}`);
     }
   }
 
@@ -169,10 +165,10 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
     overallRisk: 'UNKNOWN',
     riskScore: 0,
     category: 'OTHER',
-    summary: `Unable to complete AI analysis due to an upstream API error: ${lastError?.message || 'Unknown error'}.`,
+    summary: `Gemini API call returned an error. (${errors.join(' | ')})`,
     warningSigns: [],
     possibleConsequences: ['Automated risk evaluation was incomplete.'],
-    recommendedActions: ['Verify API key permissions or try submitting again.'],
+    recommendedActions: ['Check GEMINI_API_KEY validity, project quota, or try submitting again.'],
     questionsToVerify: [],
     confidence: 0,
     limitations: ['API error occurred during Gemini inference.'],
@@ -201,7 +197,7 @@ User Follow-Up Question: "${userQuery}"
 Provide a concise, practical, helpful 2-3 sentence response offering safety guidance and verification steps.
 `;
 
-  const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'];
+  const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
 
   for (const modelName of modelsToTry) {
     try {
