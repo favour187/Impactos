@@ -2,7 +2,7 @@ services:
   - type: web
     name: impactos
     env: node
-    buildCommand: npm install --legacy-peer-deps && npm run build
+    buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
       - key: GEMINI_API_KEY

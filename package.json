@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch server/index.ts",
     "build": "vite build && tsc -p tsconfig.server.json",
-    "start": "NODE_ENV=production node dist-server/index.js"
+    "start": "NODE_ENV=production node dist-server/server/index.js"
   },
   "dependencies": {
     "@google/genai": "^2.16.0",
@@ -38,6 +38,6 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "vite": "^8.2.1"
+    "vite": "^6.2.0"
   }
 }
