@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export interface WarningSign {
   title: string;
@@ -70,8 +70,6 @@ SAFETY & TONE GUIDELINES:
 - Avoid absolute declarative accusations: Do not say "This definitely contains malware", "This person is a scammer", or "You will be harmed".
 - For medical, legal, structural, electrical, agricultural, or emergency situations, include standard screening disclaimers.
 - If the input is completely ambiguous or unreadable, set overallRisk to "UNKNOWN", riskScore to 0, confidence to 0, and explain what additional context is required.
-
-Do NOT include markdown formatting (\`\`\`json) or extra text outside the JSON object.
 `;
 
 export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysisResult> {
@@ -102,9 +100,8 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
     };
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const genAI = new GoogleGenerativeAI(apiKey);
     
-  const contents: any[] = [];
   let promptText = `${SYSTEM_PROMPT}\n\nUSER INPUT FOR RISK ANALYSIS:\nInput Type: ${payload.inputType}\n`;
 
   if (payload.location) {
@@ -117,39 +114,43 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
     promptText += `Content:\n"""\n${payload.content}\n"""\n`;
   }
 
-  contents.push({ text: promptText });
+  const parts: any[] = [{ text: promptText }];
 
   if (payload.imageBase64) {
     let cleanBase64 = payload.imageBase64;
     let mimeType = payload.imageMimeType || 'image/jpeg';
     
     if (cleanBase64.includes(';base64,')) {
-      const parts = cleanBase64.split(';base64,');
-      const mimeMatch = parts[0].match(/data:(.*)/);
-      if (mimeMatch) mimeType = mimeMatch[1];
-      cleanBase64 = parts[1];
+      const split = cleanBase64.split(';base64,');
+      if (split[0].includes('data:')) {
+        mimeType = split[0].replace('data:', '');
+      }
+      cleanBase64 = split[1];
     }
 
-    contents.push({
+    parts.push({
       inlineData: {
-        mimeType,
         data: cleanBase64,
+        mimeType,
       },
     });
   }
 
-  // List of standard supported Gemini models to try in sequence
-  const modelsToTry = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+  // Model fallback chain: gemini-1.5-flash, gemini-1.5-pro, gemini-2.0-flash-exp
+  const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'];
   let lastError: any = null;
 
   for (const modelName of modelsToTry) {
     try {
-      const response = await ai.models.generateContent({
+      const model = genAI.getGenerativeModel({
         model: modelName,
-        contents,
+        generationConfig: {
+          responseMimeType: 'application/json'
+        }
       });
 
-      const responseText = response.text || '';
+      const result = await model.generateContent(parts);
+      const responseText = result.response.text() || '';
       const parsed = parseGeminiResponse(responseText);
 
       if (parsed) {
@@ -189,7 +190,7 @@ export async function answerFollowupQuestion(
     return 'Gemini API key is not configured on the backend server. Please add GEMINI_API_KEY to process.env to enable live AI responses.';
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const genAI = new GoogleGenerativeAI(apiKey);
   const prompt = `
 You are IMPACTOS, an expert risk screening assistant.
 The user is reviewing a ${context.category} situation assessed at ${context.overallRisk} risk.
@@ -200,16 +201,14 @@ User Follow-Up Question: "${userQuery}"
 Provide a concise, practical, helpful 2-3 sentence response offering safety guidance and verification steps.
 `;
 
-  const modelsToTry = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+  const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'];
 
   for (const modelName of modelsToTry) {
     try {
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: [{ text: prompt }]
-      });
-
-      if (response.text) return response.text.trim();
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([{ text: prompt }]);
+      const responseText = result.response.text();
+      if (responseText) return responseText.trim();
     } catch (err: any) {
       console.error(`Error answering follow-up with model ${modelName}:`, err);
     }
