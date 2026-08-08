@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { analyzeRisk, answerFollowupQuestion } from './services/geminiService.js';
+import { analyzeRisk, answerFollowupQuestion } from './services/groqService.js';
 import { inspectUrl } from './services/urlInspector.js';
 import { communityStore } from './services/communityStore.js';
 
@@ -28,10 +28,11 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Health Check
 app.get('/api/health', (req, res) => {
+  const apiKey = process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY;
   res.json({
     status: 'ok',
     app: 'IMPACTOS AI Risk Detection Platform',
-    geminiConfigured: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== '' && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here'),
+    groqConfigured: Boolean(apiKey && apiKey.trim() !== '' && !apiKey.includes('your_')),
     time: new Date().toISOString()
   });
 });
@@ -171,7 +172,6 @@ async function setupFrontend() {
     app.use(vite.middlewares);
     console.log('Vite dev middleware attached');
   } else {
-    // Resolve static build path relative to root working directory
     const distPath = path.resolve(process.cwd(), 'dist');
     console.log(`Serving static production frontend from ${distPath}`);
     app.use(express.static(distPath));
