@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { InputType, AnalysisInputData } from '../types';
 import { 
   Camera, FileText, Globe, FileUp, Mic, MapPin, 
-  HelpCircle, Upload, X, ArrowRight, Sparkles, AlertCircle
+  Upload, X, ArrowRight, Sparkles, StopCircle, Volume2
 } from 'lucide-react';
 
 interface AnalysisInputProps {
@@ -36,8 +36,14 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
   const [location, setLocation] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [audioBase64, setAudioBase64] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<any>(null);
 
   const handleTabChange = (tab: InputType) => {
     setActiveTab(tab);
@@ -45,32 +51,72 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setImagePreview(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-      } else {
-        setImagePreview(null);
-        // If text file / doc, attempt reading text
-        if (file.type === 'text/plain' || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            setContent(event.target?.result as string);
-          };
-          reader.readAsText(file);
-        }
-      }
+    if (!file) return;
+
+    setSelectedFile(file);
+
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onloadend = () => setImagePreview(reader.result as string);
+      reader.readAsDataURL(file);
+    } else if (file.type.startsWith('audio/')) {
+      const reader = new FileReader();
+      reader.onloadend = () => setAudioBase64(reader.result as string);
+      reader.readAsDataURL(file);
+    } else if (file.type === 'text/plain' || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+      const reader = new FileReader();
+      reader.onload = (event) => setContent(event.target?.result as string);
+      reader.readAsText(file);
     }
   };
 
   const handleRemoveFile = () => {
     setSelectedFile(null);
     setImagePreview(null);
+    setAudioBase64(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const startVoiceRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setAudioBase64(reader.result as string);
+        };
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      timerRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      alert('Microphone access unavailable or denied. You can type or upload an audio file instead.');
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(timerRef.current);
+    }
   };
 
   const handlePromptClick = (prompt: string) => {
@@ -86,19 +132,19 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
         (position) => {
           setLocation(`${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`);
         },
-        (err) => {
-          setLocation('Abuja, FCT, Nigeria');
+        () => {
+          setLocation('Abuja, Nigeria');
         }
       );
     } else {
-      setLocation('Abuja, FCT, Nigeria');
+      setLocation('Abuja, Nigeria');
     }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!content && !selectedFile && !imagePreview && !context) {
-      alert('Please provide an image, text, document, URL, or situation description to analyze.');
+    if (!content && !selectedFile && !imagePreview && !audioBase64 && !context) {
+      alert('Please provide an image, text, document, URL, or situation audio/description.');
       return;
     }
 
@@ -106,7 +152,7 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
       inputType: activeTab,
       content,
       imageFile: selectedFile,
-      imageBase64: imagePreview || undefined,
+      imageBase64: imagePreview || audioBase64 || undefined,
       location,
       context
     });
@@ -178,12 +224,12 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
           }`}
         >
           <Mic className="w-4 h-4" />
-          <span>Describe Situation</span>
+          <span>Voice & Audio</span>
         </button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Tab Specific Input Fields */}
+        {/* Tab 1: Image Upload */}
         {activeTab === 'image' && (
           <div className="space-y-4">
             {imagePreview ? (
@@ -213,7 +259,7 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
                   <Upload className="w-6 h-6" />
                 </div>
                 <h4 className="text-sm font-semibold text-slate-200">
-                  Upload image of physical structure, message screenshot, crop, or hazard
+                  Upload photo of physical hazard, building structure, crop, or screenshot
                 </h4>
                 <p className="text-xs text-slate-400 mt-1">
                   Supports JPG, PNG, WebP up to 10MB
@@ -223,6 +269,7 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
           </div>
         )}
 
+        {/* Tab 2: Paste Text */}
         {activeTab === 'text' && (
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
@@ -233,11 +280,12 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Paste WhatsApp message, email, job offer, investment proposal, or suspicious text here..."
-              className="w-full rounded-2xl bg-slate-950/80 border border-slate-800 p-4 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-sans"
+              className="w-full rounded-2xl bg-slate-950/80 border border-slate-800 p-4 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 font-sans"
             />
           </div>
         )}
 
+        {/* Tab 3: Enter URL */}
         {activeTab === 'url' && (
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
@@ -253,9 +301,13 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
                 className="w-full rounded-2xl bg-slate-950/80 border border-slate-800 pl-12 pr-4 py-3.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
             </div>
+            <p className="text-[11px] text-slate-500 mt-2">
+              Performs safe domain structure analysis, Punycode detection, misleading subdomain check, and TLD risk evaluation.
+            </p>
           </div>
         )}
 
+        {/* Tab 4: Upload Document */}
         {activeTab === 'document' && (
           <div className="space-y-4">
             <div
@@ -271,10 +323,10 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
               />
               <FileUp className="w-10 h-10 text-blue-400 mx-auto mb-3" />
               <h4 className="text-sm font-semibold text-slate-200">
-                {selectedFile ? selectedFile.name : 'Upload Contract, Agreement, Invoice, or Letter'}
+                {selectedFile ? selectedFile.name : 'Upload Contract, Rental Agreement, or Invoice'}
               </h4>
               <p className="text-xs text-slate-400 mt-1">
-                Supports TXT, PDF, DOCX
+                Supports PDF, TXT, DOCX
               </p>
             </div>
 
@@ -283,29 +335,77 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
                 rows={4}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="Extracted contract excerpt..."
+                placeholder="Extracted contract text..."
                 className="w-full rounded-2xl bg-slate-950/80 border border-slate-800 p-4 text-xs font-mono text-slate-300"
               />
             )}
           </div>
         )}
 
+        {/* Tab 5: Voice & Audio Situation */}
         {activeTab === 'voice' && (
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Describe What Happened or What You Observed
-            </label>
+          <div className="space-y-4">
+            <div className="p-6 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Volume2 className="w-4 h-4 text-blue-400" />
+                    Live Microphone Dictation or Audio Voice Note
+                  </h4>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Speak or upload a recorded audio note describing what happened.
+                  </p>
+                </div>
+
+                {!isRecording ? (
+                  <button
+                    type="button"
+                    onClick={startVoiceRecording}
+                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center space-x-2 shrink-0 shadow-lg shadow-blue-600/20"
+                  >
+                    <Mic className="w-4 h-4" />
+                    <span>Record Audio Note</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={stopVoiceRecording}
+                    className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs flex items-center space-x-2 shrink-0 animate-pulse"
+                  >
+                    <StopCircle className="w-4 h-4" />
+                    <span>Stop Recording ({recordingTime}s)</span>
+                  </button>
+                )}
+              </div>
+
+              {audioBase64 && (
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
+                  <span className="text-xs text-emerald-400 font-semibold flex items-center gap-2">
+                    <Volume2 className="w-4 h-4" />
+                    Audio Recording Ready for Analysis
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setAudioBase64(null)}
+                    className="text-slate-400 hover:text-rose-400 text-xs"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
+
             <textarea
-              rows={4}
+              rows={3}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Describe the real-life situation in plain language (e.g. 'I noticed an open electrical box near a school playground with wires sticking out...')"
+              placeholder="Or type a verbal description of what happened in plain language..."
               className="w-full rounded-2xl bg-slate-950/80 border border-slate-800 p-4 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
           </div>
         )}
 
-        {/* Context & Location Row */}
+        {/* Context & Location Inputs */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
@@ -335,13 +435,13 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
               type="text"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
-              placeholder="e.g. Abuja, FCT, Nigeria"
+              placeholder="e.g. Abuja, Nigeria"
               className="w-full rounded-xl bg-slate-950/60 border border-slate-800/80 px-3.5 py-2.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
           </div>
         </div>
 
-        {/* Quick Example Prompt Chips */}
+        {/* Example Question Chips */}
         <div>
           <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-2">
             Try a common question prompt:
@@ -360,13 +460,13 @@ export const AnalysisInput: React.FC<AnalysisInputProps> = ({
           </div>
         </div>
 
-        {/* Main CTA Button */}
+        {/* CTA Button */}
         <button
           type="submit"
           disabled={isLoading}
           className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-600 text-white font-bold text-base shadow-xl shadow-blue-600/25 flex items-center justify-center space-x-3 group transition-all duration-300 disabled:opacity-50"
         >
-          <Sparkles className="w-5 h-5 text-blue-200 animate-pulse" />
+          <Sparkles className="w-5 h-5 text-blue-200" />
           <span>Analyze for Risk</span>
           <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
         </button>
