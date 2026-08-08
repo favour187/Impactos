@@ -102,75 +102,81 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
     };
   }
 
-  try {
-    const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey });
     
-    const contents: any[] = [];
-    let promptText = `${SYSTEM_PROMPT}\n\nUSER INPUT FOR RISK ANALYSIS:\nInput Type: ${payload.inputType}\n`;
+  const contents: any[] = [];
+  let promptText = `${SYSTEM_PROMPT}\n\nUSER INPUT FOR RISK ANALYSIS:\nInput Type: ${payload.inputType}\n`;
 
-    if (payload.location) {
-      promptText += `Location: ${payload.location}\n`;
-    }
-    if (payload.context) {
-      promptText += `User Context / Question: ${payload.context}\n`;
-    }
-    if (payload.content) {
-      promptText += `Content:\n"""\n${payload.content}\n"""\n`;
-    }
-
-    contents.push({ text: promptText });
-
-    if (payload.imageBase64) {
-      let cleanBase64 = payload.imageBase64;
-      let mimeType = payload.imageMimeType || 'image/jpeg';
-      
-      if (cleanBase64.includes(';base64,')) {
-        const parts = cleanBase64.split(';base64,');
-        const mimeMatch = parts[0].match(/data:(.*)/);
-        if (mimeMatch) mimeType = mimeMatch[1];
-        cleanBase64 = parts[1];
-      }
-
-      contents.push({
-        inlineData: {
-          mimeType,
-          data: cleanBase64,
-        },
-      });
-    }
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents,
-    });
-
-    const responseText = response.text || '';
-    const parsed = parseGeminiResponse(responseText);
-
-    if (parsed) {
-      return {
-        ...parsed,
-        analyzedAt: new Date().toISOString(),
-      };
-    }
-
-    throw new Error('Failed to parse response from Gemini API.');
-  } catch (error: any) {
-    console.error('Gemini API Error:', error);
-    return {
-      overallRisk: 'UNKNOWN',
-      riskScore: 0,
-      category: 'OTHER',
-      summary: `Unable to complete AI analysis due to an upstream API error: ${error.message || 'Unknown error'}.`,
-      warningSigns: [],
-      possibleConsequences: ['Automated risk evaluation was incomplete.'],
-      recommendedActions: ['Verify API key permissions or try submitting again.'],
-      questionsToVerify: [],
-      confidence: 0,
-      limitations: ['API error occurred during Gemini inference.'],
-      analyzedAt: new Date().toISOString()
-    };
+  if (payload.location) {
+    promptText += `Location: ${payload.location}\n`;
   }
+  if (payload.context) {
+    promptText += `User Context / Question: ${payload.context}\n`;
+  }
+  if (payload.content) {
+    promptText += `Content:\n"""\n${payload.content}\n"""\n`;
+  }
+
+  contents.push({ text: promptText });
+
+  if (payload.imageBase64) {
+    let cleanBase64 = payload.imageBase64;
+    let mimeType = payload.imageMimeType || 'image/jpeg';
+    
+    if (cleanBase64.includes(';base64,')) {
+      const parts = cleanBase64.split(';base64,');
+      const mimeMatch = parts[0].match(/data:(.*)/);
+      if (mimeMatch) mimeType = mimeMatch[1];
+      cleanBase64 = parts[1];
+    }
+
+    contents.push({
+      inlineData: {
+        mimeType,
+        data: cleanBase64,
+      },
+    });
+  }
+
+  // List of standard supported Gemini models to try in sequence
+  const modelsToTry = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+  let lastError: any = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents,
+      });
+
+      const responseText = response.text || '';
+      const parsed = parseGeminiResponse(responseText);
+
+      if (parsed) {
+        return {
+          ...parsed,
+          analyzedAt: new Date().toISOString(),
+        };
+      }
+    } catch (error: any) {
+      console.error(`Gemini API Error with model ${modelName}:`, error);
+      lastError = error;
+    }
+  }
+
+  return {
+    overallRisk: 'UNKNOWN',
+    riskScore: 0,
+    category: 'OTHER',
+    summary: `Unable to complete AI analysis due to an upstream API error: ${lastError?.message || 'Unknown error'}.`,
+    warningSigns: [],
+    possibleConsequences: ['Automated risk evaluation was incomplete.'],
+    recommendedActions: ['Verify API key permissions or try submitting again.'],
+    questionsToVerify: [],
+    confidence: 0,
+    limitations: ['API error occurred during Gemini inference.'],
+    analyzedAt: new Date().toISOString()
+  };
 }
 
 export async function answerFollowupQuestion(
@@ -183,9 +189,8 @@ export async function answerFollowupQuestion(
     return 'Gemini API key is not configured on the backend server. Please add GEMINI_API_KEY to process.env to enable live AI responses.';
   }
 
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const prompt = `
+  const ai = new GoogleGenAI({ apiKey });
+  const prompt = `
 You are IMPACTOS, an expert risk screening assistant.
 The user is reviewing a ${context.category} situation assessed at ${context.overallRisk} risk.
 Summary: "${context.summary}"
@@ -194,14 +199,20 @@ User Follow-Up Question: "${userQuery}"
 
 Provide a concise, practical, helpful 2-3 sentence response offering safety guidance and verification steps.
 `;
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [{ text: prompt }]
-    });
 
-    if (response.text) return response.text.trim();
-  } catch (err: any) {
-    console.error('Error answering follow-up with Gemini:', err);
+  const modelsToTry = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+
+  for (const modelName of modelsToTry) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: [{ text: prompt }]
+      });
+
+      if (response.text) return response.text.trim();
+    } catch (err: any) {
+      console.error(`Error answering follow-up with model ${modelName}:`, err);
+    }
   }
 
   return 'Unable to process follow-up request at this time. Please check backend API configuration.';
