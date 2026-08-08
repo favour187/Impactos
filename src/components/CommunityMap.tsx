@@ -47,10 +47,23 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({ reports, onAddReport
   // Default map center (Abuja, Nigeria)
   const defaultCenter: [number, number] = [9.0765, 7.3986];
 
-  const handleMapClick = (lat: number, lng: number) => {
+  const handleMapClick = async (lat: number, lng: number) => {
     setSelectedLocation({ lat, lng });
     setLocationName(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
     setIsAddingReport(true);
+
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.display_name) {
+          const parts = data.display_name.split(',');
+          setLocationName(parts.slice(0, 3).join(','));
+        }
+      }
+    } catch (e) {
+      // Fallback to coordinates
+    }
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {

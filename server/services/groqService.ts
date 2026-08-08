@@ -1,4 +1,5 @@
 import Groq from 'groq-sdk';
+import { inspectUrl } from './urlInspector.js';
 
 export interface WarningSign {
   title: string;
@@ -31,33 +32,33 @@ export interface AnalyzePayload {
 }
 
 const SYSTEM_PROMPT = `
-You are IMPACTOS, an ultra-fast Real-World Risk & Danger Detection Platform powered by Groq AI.
-Your primary task is to analyze real-world inputs (text messages, images, URLs, contracts/documents, or situation reports) and determine potential risks, hazards, financial scams, manipulative language, structural dangers, or safety warning signs.
+You are IMPACTOS, an expert Real-World Risk & Danger Detection Platform powered by Groq AI.
+Your central mission is answering: "Could there be a danger here?"
 
-The central question to answer is: "Could there be a danger here?"
-
-YOU MUST RETURN ONLY A STRICT VALID JSON OBJECT matching this exact schema:
+When analyzing real-world inputs (text messages, images, URLs, documents, contracts, or situation reports):
+1. Carefully assess for physical hazards, digital phishing/scams, financial traps, environmental threats, structural issues, electrical dangers, road hazards, manipulative language, agricultural diseases, housing contract traps, or health concerns.
+2. YOU MUST RETURN ONLY A STRICT VALID JSON OBJECT matching this exact schema:
 
 {
   "overallRisk": "LOW" | "CAUTION" | "HIGH" | "CRITICAL" | "UNKNOWN",
-  "riskScore": number (integer from 0 to 100, where 0 is safe and 100 is critical danger),
+  "riskScore": number (integer from 0 to 100, where 0 is completely safe and 100 is critical danger),
   "category": "DIGITAL SAFETY" | "PERSONAL SAFETY" | "PUBLIC SAFETY" | "HOUSING" | "TRANSPORT" | "AGRICULTURE" | "ENVIRONMENT" | "ENERGY" | "BUSINESS" | "FINANCE" | "HEALTH" | "DOCUMENTS" | "OTHER",
-  "summary": "Clear, objective 2-3 sentence summary explaining what was evaluated and the key risk assessment.",
+  "summary": "Clear, concise 2-3 sentence summary explaining what was evaluated and the key risk assessment.",
   "warningSigns": [
     {
       "title": "Short title of warning sign",
       "severity": "LOW" | "MEDIUM" | "HIGH",
-      "explanation": "Clear explanation of why this feature was flagged as a potential warning sign."
+      "explanation": "Clear explanation of why this was flagged as a potential warning sign."
     }
   ],
   "possibleConsequences": [
-    "Simple human-language description of potential negative outcomes or risks"
+    "Simple human-language explanation of potential negative outcomes or risks"
   ],
   "recommendedActions": [
     "Practical, actionable step-by-step next steps for the user"
   ],
   "questionsToVerify": [
-    "Targeted verification questions the user should ask or investigate"
+    "Specific questions the user should ask or investigate to verify safety"
   ],
   "confidence": number (integer from 0 to 100),
   "limitations": [
@@ -67,15 +68,14 @@ YOU MUST RETURN ONLY A STRICT VALID JSON OBJECT matching this exact schema:
 
 SAFETY & TONE GUIDELINES:
 - Use prudent, objective language: "Potential risk detected", "Possible warning sign", "This may indicate", "Further verification is recommended".
-- Avoid declarative absolute accusations: Do not say "This definitely contains malware", "This person is a scammer", or "You will be harmed".
+- Avoid absolute declarative accusations: Do not say "This definitely contains malware", "This person is a scammer", or "You will be harmed".
 - For medical, legal, structural, electrical, agricultural, or emergency situations, include standard screening disclaimers.
 - If the input is completely ambiguous or unreadable, set overallRisk to "UNKNOWN", riskScore to 0, confidence to 0, and explain what additional context is required.
 
-Return strictly JSON. No markdown code blocks, no preamble, no trailing text.
+Return strictly JSON. Do not enclose in markdown code blocks (\`\`\`json) or extra conversational text.
 `;
 
 export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysisResult> {
-  // Support both GROQ_API_KEY and fallback GEMINI_API_KEY if passed
   const apiKey = process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY;
 
   if (!apiKey || apiKey.trim() === '' || apiKey.includes('your_')) {
@@ -83,13 +83,13 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
       overallRisk: 'UNKNOWN',
       riskScore: 0,
       category: 'OTHER',
-      summary: 'Groq API key is not configured on the backend server. Please set the GROQ_API_KEY environment variable in your server configuration (e.g. Render dashboard or .env file). Get a free instant key at https://console.groq.com/keys',
+      summary: 'Groq API key is not configured on the backend server. Please set the GROQ_API_KEY environment variable in your server configuration (e.g. Render dashboard or .env file). Get a free instant key at console.groq.com/keys',
       warningSigns: [],
       possibleConsequences: [
         'Live AI screening requires an active GROQ_API_KEY configured in environment variables.'
       ],
       recommendedActions: [
-        'Get a free Groq API key at https://console.groq.com/keys',
+        'Get a free Groq API key at console.groq.com/keys',
         'Add GROQ_API_KEY=your_key to your Render environment variables or .env file.',
         'Restart the application server.'
       ],
@@ -108,14 +108,21 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
     const groq = new Groq({ apiKey });
 
     let userPromptText = `Input Type: ${payload.inputType}\n`;
-    if (payload.location) userPromptText += `Location: ${payload.location}\n`;
-    if (payload.context) userPromptText += `User Context: ${payload.context}\n`;
-    if (payload.content) userPromptText += `Content:\n"""\n${payload.content}\n"""\n`;
+    if (payload.location) userPromptText += `Location Context: ${payload.location}\n`;
+    if (payload.context) userPromptText += `User Question / Context: ${payload.context}\n`;
+
+    // Special handling for URL inputs: Perform safe non-destructive domain inspection first!
+    if (payload.inputType === 'url' && payload.content) {
+      const urlResult = inspectUrl(payload.content);
+      userPromptText += `\nSAFE URL DOMAIN INSPECTION RESULTS:\nURL: ${urlResult.url}\nHostname: ${urlResult.hostname}\nUses HTTPS: ${urlResult.usesHttps}\nIs Raw IP: ${urlResult.isIpAddress}\nRisk Score: ${urlResult.riskScore}/100\nSuspicious Indicators: ${urlResult.suspiciousIndicators.join('; ')}\n`;
+    } else if (payload.content) {
+      userPromptText += `Content:\n"""\n${payload.content}\n"""\n`;
+    }
 
     let userMessageContent: any = userPromptText;
     let selectedModel = 'llama-3.3-70b-versatile';
 
-    // If an image is provided, use Groq Vision model (llama-3.2-11b-vision-preview or llama-3.2-90b-vision-preview)
+    // If an image is provided, attempt Groq Vision model
     if (payload.imageBase64) {
       selectedModel = 'llama-3.2-11b-vision-preview';
 
@@ -136,27 +143,45 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
       ];
     }
 
-    const chatCompletion = await groq.chat.completions.create({
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userMessageContent }
-      ],
-      model: selectedModel,
-      temperature: 0.2,
-      response_format: selectedModel.includes('vision') ? undefined : { type: 'json_object' }
-    });
+    // Try primary selected model, fallback to llama-3.3-70b-versatile if vision preview hits tier limits
+    const modelsToTry = selectedModel.includes('vision')
+      ? ['llama-3.2-11b-vision-preview', 'llama-3.3-70b-versatile']
+      : ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
 
-    const responseText = chatCompletion.choices[0]?.message?.content || '';
-    const parsed = parseGroqResponse(responseText);
+    let lastError: any = null;
 
-    if (parsed) {
-      return {
-        ...parsed,
-        analyzedAt: new Date().toISOString()
-      };
+    for (const modelName of modelsToTry) {
+      try {
+        const isVision = modelName.includes('vision');
+        const contentBody = isVision ? userMessageContent : userPromptText;
+
+        const chatCompletion = await groq.chat.completions.create({
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: contentBody }
+          ],
+          model: modelName,
+          temperature: 0.2,
+          response_format: isVision ? undefined : { type: 'json_object' }
+        });
+
+        const responseText = chatCompletion.choices[0]?.message?.content || '';
+        const parsed = parseGroqResponse(responseText);
+
+        if (parsed) {
+          return {
+            ...parsed,
+            analyzedAt: new Date().toISOString()
+          };
+        }
+      } catch (err: any) {
+        console.error(`Groq API Error with model ${modelName}:`, err);
+        lastError = err;
+      }
     }
 
-    throw new Error('Failed to parse response JSON from Groq AI.');
+    throw lastError || new Error('Failed to complete Groq API inference.');
+
   } catch (error: any) {
     console.error('Groq API Error:', error);
     return {
