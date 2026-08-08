@@ -1,5 +1,3 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-
 export interface WarningSign {
   title: string;
   severity: 'LOW' | 'MEDIUM' | 'HIGH';
@@ -102,8 +100,6 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
     };
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-    
   let promptText = `${SYSTEM_PROMPT}\n\nUSER INPUT FOR RISK ANALYSIS:\nInput Type: ${payload.inputType}\n`;
 
   if (payload.location) {
@@ -132,32 +128,57 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
 
     parts.push({
       inlineData: {
-        data: cleanBase64,
         mimeType,
-      },
+        data: cleanBase64
+      }
     });
   }
 
-  // Standard supported Gemini model names
-  const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
+  const requestBody = {
+    contents: [
+      {
+        parts
+      }
+    ],
+    generationConfig: {
+      temperature: 0.2
+    }
+  };
+
+  // REST API Endpoints to try (supports v1beta, v1, gemini-1.5-flash, gemini-2.0-flash, gemini-1.5-pro)
+  const endpointsToTry = [
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`
+  ];
+
   let errors: string[] = [];
 
-  for (const modelName of modelsToTry) {
+  for (const endpoint of endpointsToTry) {
     try {
-      const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(parts);
-      const responseText = result.response.text() || '';
-      const parsed = parseGeminiResponse(responseText);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
 
-      if (parsed) {
-        return {
-          ...parsed,
-          analyzedAt: new Date().toISOString(),
-        };
+      const data = await response.json();
+
+      if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        const rawText = data.candidates[0].content.parts[0].text;
+        const parsed = parseGeminiResponse(rawText);
+        if (parsed) {
+          return {
+            ...parsed,
+            analyzedAt: new Date().toISOString()
+          };
+        }
+      } else if (data.error) {
+        errors.push(`[${data.error.code || response.status}] ${data.error.message || 'API Error'}`);
       }
-    } catch (error: any) {
-      console.error(`Gemini API Error with model ${modelName}:`, error);
-      errors.push(`${modelName}: ${error.message || 'Error'}`);
+    } catch (err: any) {
+      errors.push(`Network Error: ${err.message || 'Failed fetch'}`);
     }
   }
 
@@ -165,13 +186,16 @@ export async function analyzeRisk(payload: AnalyzePayload): Promise<RiskAnalysis
     overallRisk: 'UNKNOWN',
     riskScore: 0,
     category: 'OTHER',
-    summary: `Gemini API call returned an error. (${errors.join(' | ')})`,
+    summary: `Gemini API call failed. Details: ${errors.join(' | ')}`,
     warningSigns: [],
-    possibleConsequences: ['Automated risk evaluation was incomplete.'],
-    recommendedActions: ['Check GEMINI_API_KEY validity, project quota, or try submitting again.'],
+    possibleConsequences: ['Automated risk evaluation could not be completed.'],
+    recommendedActions: [
+      'Check if your GEMINI_API_KEY is valid and has "Generative Language API" enabled in Google Cloud / AI Studio.',
+      'Ensure the key has active quota and no domain restrictions.'
+    ],
     questionsToVerify: [],
     confidence: 0,
-    limitations: ['API error occurred during Gemini inference.'],
+    limitations: ['API key or endpoint restriction encountered.'],
     analyzedAt: new Date().toISOString()
   };
 }
@@ -183,11 +207,10 @@ export async function answerFollowupQuestion(
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_gemini_api_key_here') {
-    return 'Gemini API key is not configured on the backend server. Please add GEMINI_API_KEY to process.env to enable live AI responses.';
+    return 'Gemini API key is not configured on the backend server. Please set GEMINI_API_KEY in server environment variables.';
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const prompt = `
+  const promptText = `
 You are IMPACTOS, an expert risk screening assistant.
 The user is reviewing a ${context.category} situation assessed at ${context.overallRisk} risk.
 Summary: "${context.summary}"
@@ -197,20 +220,38 @@ User Follow-Up Question: "${userQuery}"
 Provide a concise, practical, helpful 2-3 sentence response offering safety guidance and verification steps.
 `;
 
-  const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
+  const requestBody = {
+    contents: [
+      {
+        parts: [{ text: promptText }]
+      }
+    ]
+  };
 
-  for (const modelName of modelsToTry) {
+  const endpointsToTry = [
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`
+  ];
+
+  for (const endpoint of endpointsToTry) {
     try {
-      const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent([{ text: prompt }]);
-      const responseText = result.response.text();
-      if (responseText) return responseText.trim();
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+
+      const data = await response.json();
+      if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        return data.candidates[0].content.parts[0].text.trim();
+      }
     } catch (err: any) {
-      console.error(`Error answering follow-up with model ${modelName}:`, err);
+      console.error('Follow-up REST API error:', err);
     }
   }
 
-  return 'Unable to process follow-up request at this time. Please check backend API configuration.';
+  return 'Unable to process follow-up request. Please verify GEMINI_API_KEY configuration.';
 }
 
 function parseGeminiResponse(text: string): RiskAnalysisResult | null {
