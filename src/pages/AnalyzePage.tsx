@@ -8,11 +8,15 @@ import { ConfidenceIndicator } from '../components/ConfidenceIndicator';
 import { SafetyDisclaimer } from '../components/SafetyDisclaimer';
 import { PrivacyBanner } from '../components/PrivacyBanner';
 import { RiskChatAssistant } from '../components/RiskChatAssistant';
+import { AudioBriefingButton } from '../components/AudioBriefingButton';
+import { EmergencyHotlineWidget } from '../components/EmergencyHotlineWidget';
+import { PrintableReportModal } from '../components/PrintableReportModal';
+import { JudgeQuickTestDrive } from '../components/JudgeQuickTestDrive';
 import { useAnalysisHistory } from '../context/AnalysisHistoryContext';
 import { AnalysisInputData, RiskAnalysisResult } from '../types';
 import { 
   ShieldCheck, AlertTriangle, ArrowLeft, Download, Share2, 
-  RotateCcw, Check, Sparkles, HelpCircle, ListOrdered, FileText
+  RotateCcw, Check, Sparkles, HelpCircle, ListOrdered, FileText, Printer
 } from 'lucide-react';
 
 export const AnalyzePage: React.FC = () => {
@@ -24,8 +28,8 @@ export const AnalyzePage: React.FC = () => {
   const [analysisResult, setAnalysisResult] = useState<RiskAnalysisResult | null>(null);
   const [currentInput, setCurrentInput] = useState<AnalysisInputData | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
 
-  // Check if state was passed from homepage or example situation
   useEffect(() => {
     if (routerLocation.state && routerLocation.state.inputData) {
       handleAnalyze(routerLocation.state.inputData);
@@ -63,7 +67,6 @@ export const AnalyzePage: React.FC = () => {
       const result: RiskAnalysisResult = await response.json();
       setAnalysisResult(result);
 
-      // Save to local user history context if overallRisk is known
       if (result.overallRisk !== 'UNKNOWN' || result.riskScore > 0) {
         const title = data.context || data.content?.slice(0, 40) || `${result.category} Analysis`;
         addHistoryItem(result, data.inputType, title);
@@ -79,7 +82,7 @@ export const AnalyzePage: React.FC = () => {
         warningSigns: [],
         possibleConsequences: ['Verification required through direct secondary review.'],
         recommendedActions: ['Retry submission or verify backend server setup.'],
-        questionsToVerify: ['Is GEMINI_API_KEY configured in backend environment variables?'],
+        questionsToVerify: ['Is GROQ_API_KEY configured in backend environment variables?'],
         confidence: 0,
         limitations: ['Network or server communication error.'],
         analyzedAt: new Date().toISOString()
@@ -124,7 +127,7 @@ Confidence: ${analysisResult.confidence}%`;
             Universal AI Risk Analyzer
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Multimodal risk detection powered by Gemini AI. Input text, photos, URLs, or documents.
+            Multimodal risk detection powered by Groq AI. Input text, photos, URLs, documents, or audio dictation.
           </p>
         </div>
 
@@ -139,7 +142,10 @@ Confidence: ${analysisResult.confidence}%`;
         )}
       </div>
 
-      {/* Input Section when no result is actively being displayed */}
+      {/* Judge Quick Test Drive Banner */}
+      {!analysisResult && !isLoading && <JudgeQuickTestDrive />}
+
+      {/* Input Section */}
       {!analysisResult && !isLoading && (
         <div className="space-y-8">
           <AnalysisInput
@@ -190,7 +196,9 @@ Confidence: ${analysisResult.confidence}%`;
                   {analysisResult.summary}
                 </p>
 
-                <div className="flex items-center space-x-3 pt-2">
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <AudioBriefingButton result={analysisResult} />
+
                   <button
                     onClick={handleCopySummary}
                     className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center space-x-2 transition-colors"
@@ -198,10 +206,21 @@ Confidence: ${analysisResult.confidence}%`;
                     {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4" />}
                     <span>{copied ? 'Copied Summary' : 'Share / Copy Summary'}</span>
                   </button>
+
+                  <button
+                    onClick={() => setShowPrintModal(true)}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center space-x-2 transition-colors"
+                  >
+                    <Printer className="w-4 h-4 text-blue-400" />
+                    <span>Print Official Report</span>
+                  </button>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Emergency Hotline & Local Advisory Widget */}
+          <EmergencyHotlineWidget category={analysisResult.category} />
 
           {/* WHAT WE NOTICED (Warning Signs) */}
           <div className="space-y-4">
@@ -300,6 +319,14 @@ Confidence: ${analysisResult.confidence}%`;
           {/* Safety Advisory Banner */}
           <SafetyDisclaimer />
         </div>
+      )}
+
+      {/* Printable Report Modal */}
+      {showPrintModal && analysisResult && (
+        <PrintableReportModal
+          result={analysisResult}
+          onClose={() => setShowPrintModal(false)}
+        />
       )}
     </div>
   );

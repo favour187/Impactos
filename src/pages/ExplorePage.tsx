@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SECTORS } from '../data/sectors';
 import { SectorCategory } from '../types';
+import { ContractComparisonTool } from '../components/ContractComparisonTool';
 import { 
   ShieldCheck, Home, AlertTriangle, Waves, Sprout, Zap, 
   Car, Store, FileText, DollarSign, Heart, UserCheck, 
@@ -64,6 +65,9 @@ export const ExplorePage: React.FC = () => {
         </div>
       </div>
 
+      {/* Side-by-Side Comparison Tool Feature */}
+      <ContractComparisonTool />
+
       {/* Grid of Sector Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredSectors.map((sector) => {
@@ -101,7 +105,7 @@ export const ExplorePage: React.FC = () => {
         })}
       </div>
 
-      {/* Selected Sector Details Drawer / Detail Box */}
+      {/* Selected Sector Details Box */}
       {selectedCategory && (
         <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl space-y-6">
           <div className="flex items-center space-x-4">

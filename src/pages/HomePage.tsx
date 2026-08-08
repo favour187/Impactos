@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnalysisInput } from '../components/AnalysisInput';
 import { ScenarioCard } from '../components/ScenarioCard';
+import { JudgeQuickTestDrive } from '../components/JudgeQuickTestDrive';
 import { DEMO_SCENARIOS } from '../data/demoScenarios';
 import { SECTORS } from '../data/sectors';
 import { AnalysisInputData, DemoScenario } from '../types';
@@ -59,8 +60,13 @@ export const HomePage: React.FC = () => {
           </p>
         </div>
 
+        {/* Hackathon Judge Quick Test Drive */}
+        <div className="mt-10 max-w-4xl mx-auto px-4 relative z-10">
+          <JudgeQuickTestDrive />
+        </div>
+
         {/* Universal Analyzer Panel */}
-        <div className="mt-10 px-4 relative z-10">
+        <div className="mt-8 px-4 relative z-10">
           <AnalysisInput onAnalyze={handleStartAnalysis} />
         </div>
       </section>
@@ -153,7 +159,7 @@ export const HomePage: React.FC = () => {
               IMPACTOS helps you see the warning signs.
             </h3>
             <p className="text-xs text-slate-300 max-w-xl mx-auto mt-2">
-              Multimodal Gemini AI cross-checks visual indicators, language manipulation, structural patterns, and contract terms in seconds.
+              Groq AI cross-checks visual indicators, language manipulation, structural patterns, and contract terms in seconds.
             </p>
           </div>
         </div>
@@ -184,7 +190,7 @@ export const HomePage: React.FC = () => {
               2
             </div>
             <h4 className="text-base font-bold text-white uppercase tracking-wider">UNDERSTAND</h4>
-            <p className="text-xs text-slate-400">Gemini AI evaluates the situation against risk and safety heuristics.</p>
+            <p className="text-xs text-slate-400">Groq AI evaluates the situation against risk and safety heuristics.</p>
           </div>
 
           <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-3 relative">
